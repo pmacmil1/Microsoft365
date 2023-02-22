@@ -1,0 +1,98 @@
+<#PSScriptInfo
+.VERSION 1.0
+.GUID 
+.AUTHOR Kent MacMillan
+.COMPANYNAME
+.COPYRIGHT 
+.TAGS Exchange Exchange Online
+.LICENSEURI https://creativecommons.org/licenses/by-nc-sa/4.0
+.PROJECTURI 
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES 22.02.2023
+.DESCRIPTION  Helper script which automates running the cleanup script Wipe-ExchangeOnlineMailbox.ps1 script from Aaron Guilmette against 
+              multiple mailboxes via a CSV and logs all steps to C:\Temp 
+#> 
+
+#Connect & Login to ExchangeOnline (MFA)
+$getsessions = Get-PSSession | Select-Object -Property State, Name
+$isconnected = (@($getsessions) -like '@{State=Opened; Name=ExchangeOnlineInternalSession*').Count -gt 0
+If ($isconnected -ne "True") 
+{
+    Connect-ExchangeOnline
+}
+
+#Logging variables
+$Date = Get-Date -Format "dd.MM.yy_HH-mm-ss"
+$CleanUpLog = "CleanUPLog"+"_"+$Date+".log"
+
+#UPDATE YOUR PREFERRED LOG PATH HERE
+$LogPath = "C:\Temp\Logs\"+$CleanUpLog
+
+#Pass credentials to Wipe-ExchangeOnlineMailbox.ps1
+If($cred -eq $null)
+{
+    $cred = Get-Credential
+}
+
+Start-Transcript -Path $LogPath
+
+#UPDATE WITH YOUR CSV HERE
+$Mailboxs = Import-Csv -Path "C:\Temp\MailboxesToBeCleaned.csv" -Delimiter ";"
+$Count = 1
+$ProcessedMailboxes = @()
+
+Try
+{
+    Foreach ($Mailbox in $Mailboxs)
+    {
+        #Add FullAccess rights for the EXO admin account running the script
+        Write-Host "Processing Mailbox "$Mailbox.DestinationEmailAddress -ForegroundColor Green
+        Write-Host "Adding or Checking Full Access rights to mailbox for Admin "$Mailbox.DestinationEmailAddress -ForegroundColor Green
+
+        #UPDATE THE ADMIN ACCOUNT NAME HERE
+        Add-MailboxPermission -Identity $Mailbox.DestinationEmailAddress -User ADMIN@TENANTANME.ONMICROSOFT.COM -AccessRights FullAccess -InheritanceType All -Verbose -ErrorAction Continue
+
+        #Setting some prerequisites to make help the Wipe-ExchangeOnlineMailbox script effectively clean out the mailboxes
+        Write-Host "Setting RetainDeletedItemsFor to 0, SingleItemRecoveryEnabled to false, MaxAttachmentSize to 150MB, and CalendarRepairDisabled to true for Mailbox "$Mailbox.DestinationEmailAddress -ForegroundColor Green
+        Set-Mailbox -Identity $Mailbox.DestinationEmailAddress -RetainDeletedItemsFor 0 -SingleItemRecoveryEnabled $false -CalendarRepairDisabled $true -MaxReceiveSize 150MB -MaxSendSize 150MB -ErrorAction Continue -Verbose
+
+        #Run the Wipe-ExchangeOnlineMailbox script from Aaron Guilmette - https://www.undocumented-features.com/2017/10/19/update-to-wipe-exchange-online-mailbox-script/
+        #MAKE SURE THE IS IN THE SAME FOLDER AS THIS SCRIPT
+        Write-Host "Wiping Mailbox using Normal Deleteoptions and MailboxOnly "$Mailbox.DestinationEmailAddress -ForegroundColor Green
+        .\Wipe-ExchangeOnlineMailbox.ps1 -Identity $Mailbox.DestinationEmailAddress -Credential $cred -DeleteItemOptions Normal -TargetOptions MailboxOnly -DebugLogging
+
+        Write-Host "Sleeping for one minute" -ForegroundColor Green
+        Start-Sleep -S 60
+
+        #Use the ManagedFolderAssistant to complete clean up of the mailbox
+        Write-Host "Starting the ManagedFolderAssistant on " $Mailbox.DestinationEmailAddress -ForegroundColor Green
+        Start-ManagedFolderAssistant -Identity $Mailbox.DestinationEmailAddress -Verbose
+        
+        #Check that Inbox and RecoverableItems are empty and log it
+        Write-Host "RecoverablesItems size: " $Mailbox.DestinationEmailAddress -ForegroundColor Yellow
+        Get-MailboxFolderStatistics $Mailbox.DestinationEmailAddress -FolderScope RecoverableItems | FT Name,FolderAndSubfolderSize,ItemsInFolderAndSubfolders
+        Write-Host "Inbox size: " $Mailbox.DestinationEmailAddress -ForegroundColor Yellow
+        Get-MailboxFolderStatistics $Mailbox.DestinationEmailAddress -FolderScope Inbox | FT Name,FolderAndSubfolderSize,ItemsInFolderAndSubfolders
+        
+        #Log all mailboxes processed so far
+        $ProcessedMailboxes += New-Object PsObject -property @{
+            'Count' = $Count++
+            'Mailbox' = $Mailbox.DestinationEmailAddress
+        }
+    }
+}
+Catch
+{
+
+    Write-Host $_.Exception.Message -ForegroundColor Red
+
+}
+Finally
+{
+        #UPDATE THE LOG FILE LOCATION HERE
+        $ProcessedMailboxes | Export-CSV -Path "C:\Temp\Logs\EndLog.csv" -Delimiter ";"
+        Stop-Transcript
+}
