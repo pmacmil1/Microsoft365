@@ -176,7 +176,7 @@ https://grump-it.pro/blog/2023/06/15/change-all-time-zones-and-regional-settings
 #>
 
 function getSPOSitesTimeZones
-
+{
     [CmdletBinding()]
     param
     (
@@ -184,7 +184,6 @@ function getSPOSitesTimeZones
         [string]$csvExportPath
     )
 
-{
     $SPOSites = Get-SPOSite -Limit All | Where-Object {($_.URL -inotmatch 'appcatalog') -or ($_.URL -inotmatch '/portals/hub') -or ($_.URL -inotmatch 'my.sharepoint.com/')} 
     Foreach($SPOSite in $SPOSites)
     {
@@ -206,9 +205,9 @@ function getSPOSitesTimeZones
 
         $CSVObject = [pscustomobject]@{
             'SPO URL' = $SPOSite.Url;
-            'Zeitzone' = $TimezoneName;
+            'Time Zone' = $TimezoneName;
             'Locale' = $regionalSettings.actions.locale
-            'Zeitformat' = $regionalSettings.actions.hourFormat
+            'Time Format' = $regionalSettings.actions.hourFormat
             'Template' = $SPOSite.Template;
             'IsTeamsSite' = $SPOSite.IsTeamsConnected;
             'GroupID' = $SPOSite.RelatedGroupId
@@ -259,7 +258,7 @@ https://grump-it.pro/blog/2023/06/15/change-all-time-zones-and-regional-settings
 #>
 
 function setSPOSitesTimeZonesToDEStandard
-
+{
     [CmdletBinding()]
     param
     (
@@ -267,7 +266,6 @@ function setSPOSitesTimeZonesToDEStandard
         [string]$adminUserName
     )
 	
-{
 	
 $script = @"
 {
